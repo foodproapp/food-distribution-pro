@@ -2373,12 +2373,13 @@ function closeProductPage() {
 }
 
 /* دریافت محصولات بدون دریافت ستون‌های موجودی */
+
 async function loadProducts() {
   if (!db || !profile) return;
 
   const fields = profile.role === "manager"
-    ? "id,name,code,category,unit,buy_price,sell_price,consumer_price,barcode,description,image_url,is_archived,sort_order"
-    : "id,name,category,unit,sell_price,consumer_price,barcode,description,image_url,is_archived,sort_order";
+    ? "id,name,code,category,unit,buy_price,sell_price,consumer_price,stock,min_stock,barcode,description,image_url,is_archived,sort_order"
+    : "id,name,category,unit,sell_price,consumer_price,stock,barcode,description,image_url,is_archived,sort_order";
 
   const { data, error } = await db
     .from("products")
@@ -2401,6 +2402,7 @@ async function loadProducts() {
   renderProducts();
   renderPurchaseProductOptions();
 }
+
 
 /* نمایش فهرست محصولات */
 let draggedProductId = null;

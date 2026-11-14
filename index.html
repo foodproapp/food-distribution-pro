@@ -2406,6 +2406,7 @@ async function loadProducts() {
 let draggedProductId = null;
 let savingProductOrder = false;
 
+
 async function renderProducts() {
   const target = $("products");
   if (!target) return;
@@ -2449,7 +2450,6 @@ async function renderProducts() {
   for (const p of filtered) {
     const card = document.createElement("div");
     card.className = "product";
-
     card.dataset.productId = p.id;
 
     if (isManager && !search) {
@@ -2492,7 +2492,6 @@ async function renderProducts() {
 
       card.addEventListener("drop", async event => {
         event.preventDefault();
-
         card.classList.remove("drag-over");
 
         const fromId = draggedProductId;
@@ -2503,15 +2502,37 @@ async function renderProducts() {
         await reorderProducts(fromId, toId);
       });
     }
+
     const imageUrl = await getProductImage(p.image_url);
+    const stock = Math.max(0, Number(p.stock) || 0);
+    const minStock = Math.max(0, Number(p.min_stock) || 0);
+
     card.innerHTML = `
-    ${
-  imageUrl
-    ? `<img src="${escapeHtml(imageUrl)}"
-        alt="${escapeHtml(p.name)}"
-        style="width:100%;height:150px;object-fit:contain;border-radius:12px;margin-bottom:10px">`
-    : `<div style="height:80px;text-align:center;padding:20px">بدون عکس</div>`
-}
+      <div style="
+        width:100%;
+        height:170px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        overflow:hidden;
+        background:#f5f5f5;
+        border-radius:12px;
+        margin-bottom:12px;
+      ">
+        ${
+          imageUrl
+            ? `<img src="${escapeHtml(imageUrl)}"
+                alt="${escapeHtml(p.name)}"
+                style="
+                  width:100%;
+                  height:100%;
+                  object-fit:contain;
+                  display:block;
+                ">`
+            : `<div style="text-align:center;color:#777">بدون عکس</div>`
+        }
+      </div>
+
       <h3>${escapeHtml(p.name || "بدون نام")}</h3>
 
       <p>
@@ -2533,10 +2554,17 @@ async function renderProducts() {
         }
       </p>
 
+      <p>
+        موجودی:
+        <strong>${stock}</strong>
+        ${escapeHtml(p.unit || "عدد")}
+      </p>
+
       ${
         isManager
           ? `
             <p>قیمت خرید: ${money(p.buy_price || 0)}</p>
+            <p>حداقل موجودی: ${minStock} ${escapeHtml(p.unit || "عدد")}</p>
 
             <div class="product-actions">
               <button class="secondary"
@@ -2557,7 +2585,6 @@ async function renderProducts() {
     target.appendChild(card);
   }
 
-  /* پشتیبانی از کشیدن با انگشت */
   if (isManager && !search) {
     enableTouchProductDrag(target);
   }
@@ -2805,7 +2832,11 @@ async function addProduct() {
   ) {
     return notice("مقادیر معتبر نیستند.", "error");
   }
+  const imageFile = $("productImage")?.files?.[0];
 
+if (editingProductId === null && !imageFile) {
+  return notice("برای ثبت محصول باید عکس انتخاب کنی.", "error");
+}
   setBusy("addProductButton", true);
 
   let uploadedPath = null;

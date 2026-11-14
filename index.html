@@ -2955,6 +2955,7 @@ function closeInvoicePicker() {
 }
 
 /* ساخت فهرست انتخاب چندمحصولی */
+
 async function renderInvoicePicker() {
   const box = $("invoicePickerList");
   if (!box) return;
@@ -2974,70 +2975,148 @@ async function renderInvoicePicker() {
   });
 
   if (!list.length) {
-    box.textContent = "محصولی پیدا نشد.";
+    box.innerHTML = `
+      <div class="empty-state" style="padding:25px;text-align:center">
+        محصولی پیدا نشد.
+      </div>
+    `;
     return;
   }
 
   let html = `
-    <table>
-      <tr>
-        <th>انتخاب</th>
-        <th>نام محصول</th>
-        <th>قیمت فروش</th>
-        <th>قیمت مصرف‌کننده</th>
-        <th>موجودی</th>
-        <th>تعداد</th>
-      </tr>
+    <div style="
+      display:grid;
+      grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+      gap:16px;
+      padding:10px 2px;
+    ">
   `;
 
   for (const p of list) {
     const imageUrl = await getProductImage(p.image_url);
     const id = escapeHtml(p.id);
     const stock = Math.max(0, Number(p.stock) || 0);
+
     const alreadyAdded = invoiceItems.find(
       x => String(x.product.id) === String(p.id)
     );
+
     const remaining = Math.max(
       0,
-      stock - (alreadyAdded?.quantity || 0)
+      stock - (Number(alreadyAdded?.quantity) || 0)
     );
 
     html += `
-      <tr>
-        <td>
-          <input
-            type="checkbox"
-            class="invoice-pick-check"
-            data-id="${id}"
-            style="width:auto"
-            ${remaining < 1 ? "disabled" : ""}
-          >
-        </td>
+      <div style="
+        border:1px solid var(--border-color,#ddd);
+        border-radius:14px;
+        padding:12px;
+        background:var(--card-bg,transparent);
+        min-width:0;
+        display:flex;
+        flex-direction:column;
+        gap:9px;
+      ">
 
-        <td>
+        <div style="
+          width:100%;
+          aspect-ratio:1/1;
+          overflow:hidden;
+          border-radius:10px;
+          background:var(--surface-secondary,#f3f3f3);
+          display:flex;
+          align-items:center;
+          justify-content:center;
+        ">
           ${
             imageUrl
-              ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(p.name)}"
-                  style="width:65px;height:65px;object-fit:contain;border-radius:8px">`
-              : "بدون عکس"
+              ? `<img
+                  src="${escapeHtml(imageUrl)}"
+                  alt="${escapeHtml(p.name)}"
+                  style="
+                    width:100%;
+                    height:100%;
+                    object-fit:contain;
+                    display:block;
+                  "
+                >`
+              : `<span style="color:#888">بدون عکس</span>`
           }
-          <br>
-          ${escapeHtml(p.name)}
-        </td>
+        </div>
 
-        <td>${money(p.sell_price)}</td>
+        <div style="
+          font-size:16px;
+          font-weight:700;
+          min-height:42px;
+          line-height:1.8;
+        ">
+          ${escapeHtml(p.name || "بدون نام")}
+        </div>
 
-        <td>
-          ${
-            p.consumer_price == null
-              ? "نامشخص"
-              : money(p.consumer_price)
-          }
-        </td>
+        <div style="font-size:13px;line-height:2">
+          <div>
+            دسته‌بندی:
+            ${escapeHtml(p.category || "بدون دسته‌بندی")}
+          </div>
 
-        <td>${stock}</td>
+          <div>
+            قیمت فروش:
+            <strong>${money(p.sell_price || 0)}</strong>
+          </div>
 
-        <td>
+          <div>
+            قیمت مصرف‌کننده:
+            <strong>
+              ${
+                p.consumer_price == null
+                  ? "نامشخص"
+                  : money(p.consumer_price)
+              }
+            </strong>
+          </div>
+
+          <div>
+            موجودی:
+            <strong>${stock}</strong>
+            ${escapeHtml(p.unit || "عدد")}
+          </div>
+
+          <div style="color:${remaining > 0 ? "var(--success,#16834a)" : "var(--danger,#d33)"}">
+            قابل انتخاب:
+            <strong>${remaining}</strong>
+          </div>
+        </div>
+
+        <div style="
+          border-top:1px solid var(--border-color,#ddd);
+          padding-top:10px;
+          margin-top:auto;
+        ">
+          <label style="
+            display:flex;
+            align-items:center;
+            gap:8px;
+            font-weight:600;
+            margin-bottom:9px;
+          ">
+            <input
+              type="checkbox"
+              class="invoice-pick-check"
+              data-id="${id}"
+              style="width:18px;height:18px"
+              ${remaining < 1 ? "disabled" : ""}
+            >
+            انتخاب محصول
+          </label>
+
+          <label style="
+            display:block;
+            font-size:13px;
+            margin-bottom:5px;
+          ">
+            تعداد موردنظر
+          </label>
+
           <input
             type="number"
             min="1"
@@ -3046,14 +3125,16 @@ async function renderInvoicePicker() {
             value="${remaining > 0 ? 1 : 0}"
             class="invoice-pick-quantity"
             data-id="${id}"
+            style="width:100%;box-sizing:border-box"
             ${remaining < 1 ? "disabled" : ""}
           >
-        </td>
-      </tr>
+        </div>
+
+      </div>
     `;
   }
 
-  box.innerHTML = html + "</table>";
+  box.innerHTML = html + "</div>";
 }
 
 /* افزودن تمام محصولات انتخاب‌شده */

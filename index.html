@@ -2241,6 +2241,16 @@ async function loadInvoices(){
  }
 }
   /* نمایش قیمت مصرف‌کننده در اقلام مرجوعی */
+  function closeReturnModal() {
+  $("returnModal").classList.add("hidden");
+
+  selectedReturnInvoice = null;
+  returnLines = [];
+
+  $("returnReason").value = "";
+  $("returnMessage").textContent = "";
+  $("returnLines").innerHTML = "";
+}
   async function openReturnModal(id) {
   const inv = invoiceRows.find(x => String(x.id) === String(id));
   if (!inv) return;

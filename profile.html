@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#26345d">
+<title>پروفایل مدیران و ویزیتورها | آدرین نوین</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f1f3fa;font-family:Tahoma;color:#283047}
+header{background:linear-gradient(120deg,#202b50,#35477d,#6578d6);color:white;padding:22px 15px;text-align:center}
+main{max-width:1100px;margin:22px auto;padding:12px}
+.card{background:white;padding:18px;border-radius:15px;margin:14px 0;box-shadow:0 7px 22px #202b5010}
+button{padding:11px 15px;border:0;border-radius:9px;background:#394b83;color:white;font:inherit;cursor:pointer}
+button.secondary{background:#e9edf8;color:#26345d}
+input{width:100%;padding:12px;border:1px solid #dce1ef;border-radius:9px;font:inherit;margin:6px 0}
+table{width:100%;border-collapse:collapse;min-width:650px}
+th,td{padding:12px;border-bottom:1px solid #e5e9f2;text-align:right}
+th{background:#eef1fa;color:#26345d}
+.tablewrap{overflow:auto}
+.message{padding:12px;border-radius:10px;background:#fff0c2;white-space:pre-wrap}
+.error{background:#ffe0e0;color:#9d2424}
+.good{background:#dcf5e9;color:#17603d}
+.hidden{display:none}
+.pill{display:inline-block;padding:4px 9px;border-radius:20px;background:#e7f5ee;color:#17603d;font-size:12px}
+.inactive{background:#ffe7e7;color:#a22}
+</style>
+</head>
+<body>
+<header>
+<h2>پروفایل مدیران و ویزیتورها</h2>
+<p>سیستم مدیریت فروش و پخش آدرین نوین</p>
+</header>
+<main>
+<section id="loading" class="card">در حال بررسی نشست کاربری...</section>
+<section id="denied" class="card hidden">
+ <p class="message error">این صفحه فقط برای مدیر فعال سامانه قابل مشاهده است.</p>
+ <button onclick="location.href='./index.html'">بازگشت به سامانه</button>
+</section>
+<section id="directory" class="card hidden">
+ <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+  <h3>فهرست حساب‌ها</h3>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+   <button class="secondary" onclick="loadProfiles()">به‌روزرسانی</button>
+   <button onclick="location.href='./index.html'">بازگشت به سامانه</button>
+  </div>
+ </div>
+ <input id="search" placeholder="جست‌وجوی نام، نام کاربری یا شماره موبایل..." oninput="renderProfiles()">
+ <div id="status" class="message">در حال دریافت اطلاعات...</div>
+ <div id="profilesTable" class="tablewrap"></div>
+</section>
+</main>
+<script>
+const SUPABASE_URL="https://hlxsrgisljqqvxzdxphs.supabase.co";
+const SUPABASE_PUBLIC_KEY="sb_publishable_CXpWL4cenr9GnHsZqTK9Rw_zExkK1y8";
+const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLIC_KEY);
+let rows=[];
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function showError(msg){$("loading").classList.remove("hidden");$("loading").textContent=msg;}
+async function init(){
+ try{
+  const {data:{session},error:sessionError}=await db.auth.getSession();
+  if(sessionError)throw sessionError;
+  if(!session){location.href="./index.html";return;}
+  const {data:me,error}=await db.from("profiles").select("role,active").eq("id",session.user.id).single();
+  if(error)throw error;
+  $("loading").classList.add("hidden");
+  if(me?.role!=="manager"||me?.active!==true){$("denied").classList.remove("hidden");return;}
+  $("directory").classList.remove("hidden");
+  await loadProfiles();
+ }catch(e){showError("خطا در بررسی دسترسی: "+e.message);}
+}
+async function loadProfiles(){
+ $("status").textContent="در حال دریافت اطلاعات...";
+ const {data,error}=await db.from("profiles")
+  .select("id,role,active,full_name,nickname,phone")
+  .in("role",["manager","visitor"])
+  .order("role",{ascending:true})
+  .order("full_name",{ascending:true});
+ if(error){$("status").className="message error";$("status").textContent="خطا در دریافت پروفایل‌ها: "+error.message;return;}
+ rows=data||[];renderProfiles();
+}
+function renderProfiles(){
+ const q=$("search").value.trim().toLocaleLowerCase("fa");
+ const list=rows.filter(x=>[x.full_name,x.nickname,x.phone,x.role].some(v=>String(v||"").toLocaleLowerCase("fa").includes(q)));
+ if(!list.length){$("profilesTable").innerHTML="";$("status").className="message";$("status").textContent="پروفایلی برای نمایش پیدا نشد.";return;}
+ $("status").className="message good";$("status").textContent="تعداد حساب‌ها: "+list.length;
+ let h="<table><tr><th>نام و نام خانوادگی</th><th>نام کاربری</th><th>شماره موبایل</th><th>نقش</th><th>وضعیت</th></tr>";
+ list.forEach(x=>{
+  const role=x.role==="manager"?"مدیر":"ویزیتور";
+  h+="<tr><td>"+esc(x.full_name||"—")+"</td><td>"+esc(x.nickname||"—")+"</td><td>"+esc(x.phone||"—")+"</td><td>"+role+"</td><td><span class='pill "+(x.active?"":"inactive")+"'>"+(x.active?"فعال":"غیرفعال")+"</span></td></tr>";
+ });
+ $("profilesTable").innerHTML=h+"</table>";
+}
+init();
+</script>
+</body>
+</html>

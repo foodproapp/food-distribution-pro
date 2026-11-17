@@ -1198,7 +1198,9 @@ async function addCategory(){
 function openProductModal(){
  if(profile?.role==="manager")$("productModal").classList.remove("hidden");
 }
-
+function openProfilesPage() {
+    window.open('profile.html', '_blank');
+}
 function closeProductModal(){
  $("productModal").classList.add("hidden");
 }

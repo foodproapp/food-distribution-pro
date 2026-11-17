@@ -394,8 +394,8 @@ header h1{font-size:19px}
 <input id="unit" placeholder="واحد پایه؛ مثلاً عدد" oninput="refreshStockUnitOptions()">
 <div style="grid-column:1/-1;border:1px solid var(--line);padding:12px;border-radius:12px"><strong>واحدهای فروش این محصول</strong><p class="small">برای هر واحد، ضریب را به واحد پایه وارد کن؛ مثلاً هر بسته ۶ عدد و هر کارتن ۷۲ عدد.</p><div id="productUnitsEditor"></div><button type="button" class="secondary" onclick="addProductUnitRow()">افزودن واحد جدید</button></div>
 <input id="stock" type="number" min="0" step="1" placeholder="موجودی اولیه">
-<select id="stockUnit" aria-label="واحد موجودی اولیه"></select>
-<input id="minStock" type="number" min="0" step="1" placeholder="حداقل موجودی بر اساس واحد پایه">
+<select id="stockUnit" aria-label="واحد موجودی و حداقل موجودی" onchange="changeStockInputUnit(this.value)"></select>
+<input id="minStock" type="number" min="0" step="1" placeholder="حداقل موجودی بر اساس واحد انتخابی">
 <input id="buyPrice" type="number" min="0" placeholder="قیمت خرید هر واحد پایه">
 <input id="sellPrice" type="number" min="0" placeholder="قیمت فروش هر واحد پایه">
 <input id="consumerPrice" type="number" min="0" placeholder="قیمت مصرف‌کننده هر واحد پایه">
@@ -563,6 +563,10 @@ function refreshStockUnitOptions(selected){
  units.forEach(u=>{const o=document.createElement("option");o.value=String(u.factor);o.textContent=u.name+" (هر ۱ "+u.name+" = "+u.factor+" "+base+")";select.append(o);});
  select.value=String(units.find(u=>u.name===old)?.factor||1);
 }
+function updateStockInputHints(){const select=$("stockUnit"),factor=Number(select?.value||1),unit=select?.selectedOptions?.[0]?.textContent?.split(" (هر")[0]||$("unit")?.value||"عدد";const a=$("stock"),b=$("minStock");if(a)a.placeholder="موجودی به "+unit;if(b)b.placeholder="حداقل موجودی به "+unit;if(select)select.dataset.factor=String(factor);}
+function changeStockInputUnit(nextValue){const select=$("stockUnit"),oldFactor=Number(select?.dataset.factor||1),newFactor=Number(nextValue||1);if(!select||!Number.isFinite(newFactor)||newFactor<1)return;for(const id of ["stock","minStock"]){const field=$(id);if(field&&field.value!==""){const baseValue=Number(field.value)*oldFactor;field.value=Number.isFinite(baseValue)?String(baseValue/newFactor):field.value;}}updateStockInputHints();}
+function getPreferredInventoryUnit(product){const units=getProductUnits(product).slice().sort((a,b)=>b.factor-a.factor),stock=Math.max(0,safeNumber(product?.stock)),min=Math.max(0,safeNumber(product?.min_stock));return units.find(u=>stock%u.factor===0&&min%u.factor===0)||units[units.length-1]||{name:product?.unit||"عدد",factor:1};}
+function formatInventory(product){const u=getPreferredInventoryUnit(product);return {stock:safeNumber(product?.stock)/u.factor,minStock:safeNumber(product?.min_stock)/u.factor,unit:u.name,factor:u.factor};}
 function setInvoiceItemUnit(index,unitName){const item=invoiceItems[index];if(!item)return;const unit=getProductUnits(item.product).find(x=>x.name===unitName);if(!unit)return;item.saleUnit=unit.name;item.factor=unit.factor;item.saleQty=Math.max(1,Math.ceil(safeNumber(item.quantity)/unit.factor));item.quantity=item.saleQty*unit.factor;renderInvoiceItems();}
 function setInvoiceItemQuantity(index,value){const item=invoiceItems[index];if(!item)return;const qty=Number(value);if(!Number.isInteger(qty)||qty<1){item.saleQty=0;item.quantity=0;}else{item.saleQty=qty;item.quantity=qty*Math.max(1,Math.trunc(safeNumber(item.factor)||1));}renderInvoiceItems();}
 async function saveInvoiceUnitMetadata(invoiceId){
@@ -2636,8 +2640,9 @@ async function renderProducts() {
     }
 
     const imageUrl = await getProductImage(p.image_url);
-    const stock = Math.max(0, Number(p.stock) || 0);
-    const minStock = Math.max(0, Number(p.min_stock) || 0);
+    const inventoryView = formatInventory(p);
+    const stock = inventoryView.stock;
+    const minStock = inventoryView.minStock;
 
     card.innerHTML = `
       <div style="
@@ -2697,7 +2702,7 @@ async function renderProducts() {
         isManager
           ? `
             <p>قیمت خرید: ${money(p.buy_price || 0)}</p>
-            <p>حداقل موجودی: ${minStock} ${escapeHtml(p.unit || "عدد")}</p>
+            <p>حداقل موجودی: ${minStock} ${escapeHtml(inventoryView.unit)}</p>
 
             <div class="product-actions">
               <button class="secondary"
@@ -2880,13 +2885,13 @@ async function archiveProduct(id) {
 
 /* فرم افزودن محصول با واحدهای قابل تعریف */
 /* فرم افزودن محصول با واحدهای قابل تعریف */
-function openProductModal(){if(profile?.role!=="manager")return;editingProductId=null;$("productName").value="";$("unit").value="عدد";renderProductUnitEditor([]);$("stock").value="";$("stockUnit").value="1";$("minStock").value="";$("buyPrice").value="";$("sellPrice").value="";$("consumerPrice").value="";$("barcode").value="";$("description").value="";$("productImage").value="";$("categorySelect").value="";$("productModal").querySelector(".modalhead h2").textContent="افزودن محصول";$("addProductButton").textContent="ثبت محصول";$("productModal").classList.remove("hidden");}
-function openEditProduct(id){if(profile?.role!=="manager")return;const p=productList.find(x=>String(x.id)===String(id));if(!p)return;editingProductId=p.id;$("productName").value=p.name||"";$("unit").value=p.unit||"عدد";renderProductUnitEditor(getProductUnits(p).slice(1));$("stock").value=p.stock??0;refreshStockUnitOptions(p.unit||"عدد");$("stockUnit").value="1";$("minStock").value=p.min_stock??0;$("buyPrice").value=p.buy_price??"";$("sellPrice").value=p.sell_price??"";$("consumerPrice").value=p.consumer_price??"";$("barcode").value=p.barcode||"";$("description").value=p.description||"";$("productImage").value="";$("categorySelect").value=p.category||"";$("productModal").querySelector(".modalhead h2").textContent="ویرایش محصول";$("addProductButton").textContent="ذخیره تغییرات";$("productModal").classList.remove("hidden");}
+function openProductModal(){if(profile?.role!=="manager")return;editingProductId=null;$("productName").value="";$("unit").value="عدد";renderProductUnitEditor([]);$("stock").value="";$("stockUnit").value="1";$("minStock").value="";updateStockInputHints();$("buyPrice").value="";$("sellPrice").value="";$("consumerPrice").value="";$("barcode").value="";$("description").value="";$("productImage").value="";$("categorySelect").value="";$("productModal").querySelector(".modalhead h2").textContent="افزودن محصول";$("addProductButton").textContent="ثبت محصول";$("productModal").classList.remove("hidden");}
+function openEditProduct(id){if(profile?.role!=="manager")return;const p=productList.find(x=>String(x.id)===String(id));if(!p)return;editingProductId=p.id;$("productName").value=p.name||"";$("unit").value=p.unit||"عدد";renderProductUnitEditor(getProductUnits(p).slice(1));const preferred=getPreferredInventoryUnit(p);refreshStockUnitOptions(preferred.name);$("stockUnit").value=String(preferred.factor);$("stock").value=safeNumber(p.stock)/preferred.factor;$("minStock").value=safeNumber(p.min_stock)/preferred.factor;updateStockInputHints();$("buyPrice").value=p.buy_price??"";$("sellPrice").value=p.sell_price??"";$("consumerPrice").value=p.consumer_price??"";$("barcode").value=p.barcode||"";$("description").value=p.description||"";$("productImage").value="";$("categorySelect").value=p.category||"";$("productModal").querySelector(".modalhead h2").textContent="ویرایش محصول";$("addProductButton").textContent="ذخیره تغییرات";$("productModal").classList.remove("hidden");}
 async function addProduct(){
  if(profile?.role!=="manager")return;
- const name=$("productName").value.trim(),baseUnit=$("unit").value.trim()||"عدد",buy=Number($("buyPrice").value),sell=Number($("sellPrice").value),consumer=Number($("consumerPrice").value),enteredStock=Number($("stock").value),stockFactor=Number($("stockUnit").value||1),stock=enteredStock*stockFactor,minStock=Number($("minStock").value),unitOptions=readProductUnitEditor();
+ const name=$("productName").value.trim(),baseUnit=$("unit").value.trim()||"عدد",buy=Number($("buyPrice").value),sell=Number($("sellPrice").value),consumer=Number($("consumerPrice").value),enteredStock=Number($("stock").value),stockFactor=Number($("stockUnit").value||1),stock=enteredStock*stockFactor,enteredMinStock=Number($("minStock").value),minStock=enteredMinStock*stockFactor,unitOptions=readProductUnitEditor();
  if(!name||$("buyPrice").value===""||$("sellPrice").value===""||$("consumerPrice").value===""||$("stock").value===""||$("minStock").value==="")return notice("اطلاعات محصول را کامل کن.","error");
- if(![buy,sell,consumer,enteredStock,stock,minStock,stockFactor].every(Number.isFinite)||[buy,sell,consumer,enteredStock,stock,minStock].some(x=>x<0)||!Number.isInteger(enteredStock)||!Number.isInteger(stock)||!Number.isInteger(minStock))return notice("مقادیر قیمت و موجودی معتبر نیستند.","error");
+ if(![buy,sell,consumer,enteredStock,stock,enteredMinStock,minStock,stockFactor].every(Number.isFinite)||[buy,sell,consumer,enteredStock,stock,enteredMinStock,minStock].some(x=>x<0)||!Number.isInteger(stock)||!Number.isInteger(minStock))return notice("مقادیر قیمت و موجودی معتبر نیستند.","error");
  const seen=new Set([baseUnit.toLocaleLowerCase("fa")]);for(const u of unitOptions){const k=u.name.toLocaleLowerCase("fa");if(seen.has(k)||!Number.isInteger(u.factor)||u.factor<2)return notice("نام واحدها نباید تکراری باشد و ضریب هر واحد باید عدد صحیح بزرگ‌تر از ۱ باشد.","error");seen.add(k);}
  if(!Number.isInteger(stockFactor)||stockFactor<1)return notice("واحد موجودی اولیه معتبر نیست.","error");
  const duplicateByName=editingProductId===null&&productList.some(p=>!p.is_archived&&String(p.name||"").trim().toLocaleLowerCase("fa")===name.toLocaleLowerCase("fa"));
@@ -2968,7 +2973,8 @@ async function renderInvoicePicker() {
   for (const p of list) {
     const imageUrl = await getProductImage(p.image_url);
     const id = escapeHtml(p.id);
-    const stock = Math.max(0, Number(p.stock) || 0);
+    const inventoryView = formatInventory(p);
+    const stock = inventoryView.stock;
 
     const alreadyAdded = invoiceItems.find(
       x => String(x.product.id) === String(p.id)
@@ -3051,7 +3057,7 @@ async function renderInvoicePicker() {
           <div>
             موجودی:
             <strong>${stock}</strong>
-            ${escapeHtml(p.unit || "عدد")}
+            ${escapeHtml(inventoryView.unit)}
           </div>
 
           <div class="small">واحدها: ${getProductUnits(p).map(u=>escapeHtml(u.name)+" × "+money(u.factor)).join("، ")}</div>

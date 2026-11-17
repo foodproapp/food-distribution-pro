@@ -217,6 +217,11 @@ header h1{font-size:19px}
 </div>
 
 <div class="card">
+<h3 class="section-title">پروفایل مدیران و ویزیتورها</h3>
+<p class="small">مشاهده اطلاعات ثبت‌شده حساب‌های مدیر و ویزیتور در صفحه جداگانه.</p>
+<button class="secondary" onclick="window.open('./profiles.html','_blank')">باز کردن پروفایل‌ها</button>
+</div>
+<div class="card">
 <h3 class="section-title">مدیریت ویزیتورها</h3>
 <button class="secondary" onclick="loadVisitors()">به‌روزرسانی</button>
 <h3>ویزیتورهای فعال</h3>
@@ -386,16 +391,14 @@ header h1{font-size:19px}
 <select id="categorySelect">
 <option value="">بدون دسته‌بندی</option>
 </select>
-<input id="unit" placeholder="واحد پایه؛ مثلاً عدد">
-<input id="packageUnit" placeholder="واحد بسته؛ اختیاری">
-<input id="packageFactor" type="number" min="1" step="1" value="1" placeholder="تعداد واحد پایه در هر بسته">
-<input id="cartonUnit" placeholder="واحد کارتن؛ اختیاری">
-<input id="cartonFactor" type="number" min="1" step="1" value="1" placeholder="تعداد بسته در هر کارتن">
-<input id="stock" type="number" min="0" step="1" placeholder="موجودی بر اساس واحد پایه">
+<input id="unit" placeholder="واحد پایه؛ مثلاً عدد" oninput="refreshStockUnitOptions()">
+<div style="grid-column:1/-1;border:1px solid var(--line);padding:12px;border-radius:12px"><strong>واحدهای فروش این محصول</strong><p class="small">برای هر واحد، ضریب را به واحد پایه وارد کن؛ مثلاً هر بسته ۶ عدد و هر کارتن ۷۲ عدد.</p><div id="productUnitsEditor"></div><button type="button" class="secondary" onclick="addProductUnitRow()">افزودن واحد جدید</button></div>
+<input id="stock" type="number" min="0" step="1" placeholder="موجودی اولیه">
+<select id="stockUnit" aria-label="واحد موجودی اولیه"></select>
 <input id="minStock" type="number" min="0" step="1" placeholder="حداقل موجودی بر اساس واحد پایه">
-<input id="buyPrice" type="number" min="0" placeholder="قیمت خرید">
-<input id="sellPrice" type="number" min="0" placeholder="قیمت فروش">
-<input id="consumerPrice" type="number" min="0" placeholder="قیمت مصرف‌کننده">
+<input id="buyPrice" type="number" min="0" placeholder="قیمت خرید هر واحد پایه">
+<input id="sellPrice" type="number" min="0" placeholder="قیمت فروش هر واحد پایه">
+<input id="consumerPrice" type="number" min="0" placeholder="قیمت مصرف‌کننده هر واحد پایه">
 <input id="barcode" placeholder="بارکد">
 </div>
 
@@ -442,7 +445,8 @@ header h1{font-size:19px}
 <h2>ثبت خرید</h2>
 <button class="close" onclick="closePurchaseModal()">بستن</button>
 </div>
-<select id="purchaseProduct"></select>
+<select id="purchaseProduct" onchange="renderPurchaseUnitOptions()"></select>
+ <select id="purchaseUnit"></select>
 <div class="grid">
 <input id="purchaseQuantity" type="number" min="1" placeholder="تعداد">
 <input id="purchaseUnitPrice" type="number" min="0" placeholder="قیمت خرید هر واحد">
@@ -530,42 +534,40 @@ const escapeHtml=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;"
 const usernameEmail=u=>u.trim().toLowerCase()+"@login.food-distribution.invalid";
 
 function getProductUnits(product){
- const units=[{name:product?.unit||"عدد",factor:1}];
- const packageFactor=Math.max(1,Math.trunc(safeNumber(product?.package_factor)||1));
- const cartonFactor=Math.max(1,Math.trunc(safeNumber(product?.carton_factor)||1));
- if(product?.package_unit && packageFactor>1){
-  units.push({name:product.package_unit,factor:packageFactor});
- }
- if(product?.carton_unit && product?.package_unit && cartonFactor>1){
-  units.push({name:product.carton_unit,factor:packageFactor*cartonFactor});
+ const baseName=String(product?.unit||"عدد").trim()||"عدد";
+ const units=[{name:baseName,factor:1}],saved=Array.isArray(product?.unit_options)?product.unit_options:[];
+ if(saved.length){
+  saved.forEach(u=>{const name=String(u?.name||"").trim(),factor=Math.trunc(safeNumber(u?.factor));
+   if(name&&name!==baseName&&Number.isInteger(factor)&&factor>1&&!units.some(x=>x.name.toLowerCase()===name.toLowerCase()))units.push({name,factor});});
+ }else{
+  const pf=Math.max(1,Math.trunc(safeNumber(product?.package_factor)||1)),cf=Math.max(1,Math.trunc(safeNumber(product?.carton_factor)||1));
+  if(product?.package_unit&&pf>1)units.push({name:product.package_unit,factor:pf});
+  if(product?.carton_unit&&product?.package_unit&&cf>1)units.push({name:product.carton_unit,factor:pf*cf});
  }
  return units;
 }
-
-function setInvoiceItemUnit(index,unitName){
- const item=invoiceItems[index];
- if(!item)return;
- const unit=getProductUnits(item.product).find(x=>x.name===unitName);
- if(!unit)return;
- item.saleUnit=unit.name;
- item.factor=unit.factor;
- item.saleQty=1;
- item.quantity=unit.factor;
- renderInvoiceItems();
+function addProductUnitRow(name="",factor=2){
+ const box=$("productUnitsEditor");if(!box)return;
+ const row=document.createElement("div");row.className="unit-config-row";row.style.cssText="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;margin:8px 0";
+ const n=document.createElement("input");n.className="unit-config-name";n.placeholder="نام واحد؛ مثلاً کارتن";n.value=name;
+ const f=document.createElement("input");f.className="unit-config-factor";f.type="number";f.min="2";f.step="1";f.placeholder="تعداد واحد پایه";f.value=String(factor);
+ const b=document.createElement("button");b.type="button";b.className="danger";b.textContent="حذف";b.style.width="auto";b.onclick=()=>{row.remove();refreshStockUnitOptions();};
+ n.addEventListener("input",refreshStockUnitOptions);f.addEventListener("input",refreshStockUnitOptions);row.append(n,f,b);box.append(row);refreshStockUnitOptions();
 }
-
-function setInvoiceItemQuantity(index,value){
- const item=invoiceItems[index];
- if(!item)return;
- const qty=Number(value);
- if(!Number.isInteger(qty)||qty<1){
-  item.saleQty=0;
-  item.quantity=0;
- }else{
-  item.saleQty=qty;
-  item.quantity=qty*Math.max(1,Math.trunc(safeNumber(item.factor)||1));
- }
- renderInvoiceItems();
+function renderProductUnitEditor(units=[]){const box=$("productUnitsEditor");if(!box)return;box.innerHTML="";(units||[]).forEach(u=>addProductUnitRow(u.name,u.factor));refreshStockUnitOptions();}
+function readProductUnitEditor(){return [...document.querySelectorAll("#productUnitsEditor .unit-config-row")].map(row=>({name:row.querySelector(".unit-config-name")?.value.trim()||"",factor:Number(row.querySelector(".unit-config-factor")?.value)})).filter(x=>x.name);}
+function refreshStockUnitOptions(selected){
+ const select=$("stockUnit");if(!select)return;const base=String($("unit")?.value||"عدد").trim()||"عدد";
+ const units=[{name:base,factor:1},...readProductUnitEditor().filter(x=>Number.isInteger(x.factor)&&x.factor>1)];
+ const old=selected||select.selectedOptions?.[0]?.textContent?.split(" (هر")[0]||base;select.innerHTML="";
+ units.forEach(u=>{const o=document.createElement("option");o.value=String(u.factor);o.textContent=u.name+" (هر ۱ "+u.name+" = "+u.factor+" "+base+")";select.append(o);});
+ select.value=String(units.find(u=>u.name===old)?.factor||1);
+}
+function setInvoiceItemUnit(index,unitName){const item=invoiceItems[index];if(!item)return;const unit=getProductUnits(item.product).find(x=>x.name===unitName);if(!unit)return;item.saleUnit=unit.name;item.factor=unit.factor;item.saleQty=Math.max(1,Math.ceil(safeNumber(item.quantity)/unit.factor));item.quantity=item.saleQty*unit.factor;renderInvoiceItems();}
+function setInvoiceItemQuantity(index,value){const item=invoiceItems[index];if(!item)return;const qty=Number(value);if(!Number.isInteger(qty)||qty<1){item.saleQty=0;item.quantity=0;}else{item.saleQty=qty;item.quantity=qty*Math.max(1,Math.trunc(safeNumber(item.factor)||1));}renderInvoiceItems();}
+async function saveInvoiceUnitMetadata(invoiceId){
+ const payload=invoiceItems.map(x=>({product_id:Number(x.product.id),sale_unit:String(x.saleUnit||x.product.unit||"عدد"),sale_quantity:Number(x.saleQty??(safeNumber(x.quantity)/Math.max(1,safeNumber(x.factor)||1))),unit_factor:Math.max(1,Math.trunc(safeNumber(x.factor)||1))}));
+ const {error}=await db.rpc("save_invoice_unit_metadata",{p_invoice_id:Number(invoiceId),p_items:payload});if(error)throw error;
 }
 
 async function loadSales(){
@@ -1439,26 +1441,32 @@ setBusy("recordSaleButton",true);
 
   if(error) throw error;
 
-// اگر عکس انتخاب شده باشد، بعد از ثبت فاکتور آپلود می‌شود
-let photoWarning = "";
-
-if (photoFile) {
-  try {
-    const {data:invoiceRow,error:lookupError}=await db.from("invoices")
-      .select("id").eq("invoice_code",data).maybeSingle();
-    if(lookupError)throw lookupError;
-    if(!invoiceRow?.id)throw new Error("شناسه فاکتور برای اتصال عکس پیدا نشد.");
-    await uploadInvoicePhoto(photoFile, invoiceRow.id);
-  } catch (photoError) {
-    console.error("Photo upload error:", photoError);
-    photoWarning = " فاکتور ثبت شد، اما عکس ذخیره نشد: " + photoError.message;
-  }
+// پس از ثبت موفق، شناسه فاکتور را پیدا و واحدهای انتخاب‌شده را ذخیره می‌کنیم.
+let postSaveWarning="",savedInvoiceId=null;
+try{
+ const {data:invoiceRow,error:lookupError}=await db.from("invoices").select("id").eq("invoice_code",data).maybeSingle();
+ if(lookupError)throw lookupError;
+ if(!invoiceRow?.id)throw new Error("شناسه فاکتور پیدا نشد.");
+ savedInvoiceId=invoiceRow.id;
+ await saveInvoiceUnitMetadata(savedInvoiceId);
+}catch(metaError){
+ console.error("Invoice unit metadata error:",metaError);
+ postSaveWarning+=" واحدهای انتخاب‌شده ذخیره نشدند: "+metaError.message;
+}
+if(photoFile){
+ try{
+  if(!savedInvoiceId)throw new Error("شناسه فاکتور برای اتصال عکس پیدا نشد.");
+  await uploadInvoicePhoto(photoFile,savedInvoiceId);
+ }catch(photoError){
+  console.error("Photo upload error:",photoError);
+  postSaveWarning+=" عکس فاکتور ذخیره نشد: "+photoError.message;
+ }
 }
 
 closeInvoiceModal();
 
-if (photoWarning) {
-  notice("فاکتور با شماره " + data + " ثبت شد." + photoWarning, "error");
+if (postSaveWarning) {
+  notice("فاکتور با شماره " + data + " ثبت شد؛ هشدار: " + postSaveWarning, "error");
 } else {
   notice("فاکتور با شماره " + data + " ثبت شد.");
 }
@@ -1535,11 +1543,11 @@ async function saveInvoiceEdit(){
   });
 
   if(error)throw error;
-
+  let metadataWarning="";
+  try{await saveInvoiceUnitMetadata(editingInvoiceId);}
+  catch(metaError){metadataWarning=" (هشدار: اطلاعات واحد فروش ذخیره نشد: "+metaError.message+")";}
   closeInvoiceModal();
-
-  notice("ویرایش فاکتور ثبت شد.");
-
+  notice("ویرایش فاکتور ثبت شد."+metadataWarning,metadataWarning?"error":"success");
   await refreshAll();
 
  }catch(e){
@@ -1828,50 +1836,27 @@ function purchaseTotal(){
 $("purchaseQuantity").addEventListener("input",purchaseTotal);
 $("purchaseUnitPrice").addEventListener("input",purchaseTotal);
 
+function renderPurchaseUnitOptions(){
+ const select=$("purchaseUnit");if(!select)return;
+ const p=productList.find(x=>String(x.id)===$("purchaseProduct").value);
+ select.innerHTML="";
+ if(!p){select.innerHTML='<option value="1">واحد پایه</option>';return;}
+ getProductUnits(p).forEach(u=>{const o=document.createElement("option");o.value=String(u.factor);o.textContent=u.name+" (هر ۱ = "+u.factor+" "+(p.unit||"عدد")+")";select.append(o);});
+}
 async function recordPurchase(){
- const id=$("purchaseProduct").value;
- const q=Number($("purchaseQuantity").value);
- const price=Number($("purchaseUnitPrice").value);
-
+ const id=$("purchaseProduct").value,q=Number($("purchaseQuantity").value),price=Number($("purchaseUnitPrice").value),factor=Number($("purchaseUnit").value||1);
  if(profile?.role!=="manager")return;
-
- if(
-  !id||
-  !Number.isInteger(q)||
-  q<1||
-  $("purchaseUnitPrice").value===""||
-  !Number.isFinite(price)||
-  price<0
- ){
+ if(!id||!Number.isInteger(q)||q<1||$("purchaseUnitPrice").value===""||!Number.isFinite(price)||price<0||!Number.isInteger(factor)||factor<1){
   return message("purchaseMessage","اطلاعات خرید معتبر نیست.","error");
  }
-
  setBusy("recordPurchaseButton",true);
-
  try{
-  const {error}=await db.rpc("record_purchase",{
-   p_product_id:Number(id),
-   p_quantity:q,
-   p_unit_price:price
-  });
-
+  const {error}=await db.rpc("record_purchase",{p_product_id:Number(id),p_quantity:q*factor,p_unit_price:price/factor});
   if(error)throw error;
-
-  closePurchaseModal();
-
-  notice("خرید ثبت شد.");
-
-  await Promise.all([
-   loadProducts(),
-   loadPurchases()
-  ]);
-
- }catch(e){
-  message("purchaseMessage",e.message,"error");
-
- }finally{
-  setBusy("recordPurchaseButton",false);
- }
+  closePurchaseModal();notice("خرید ثبت شد؛ موجودی بر اساس واحد پایه افزایش یافت.");
+  await Promise.all([loadProducts(),loadPurchases()]);
+ }catch(e){message("purchaseMessage",e.message,"error");}
+ finally{setBusy("recordPurchaseButton",false);}
 }
 
 async function loadPurchases(){
@@ -2523,8 +2508,8 @@ async function loadProducts() {
   if (!db || !profile) return;
 
   const fields = profile.role === "manager"
-    ? "id,name,code,category,unit,package_unit,package_factor,carton_unit,carton_factor,buy_price,sell_price,consumer_price,stock,min_stock,barcode,description,image_url,is_archived,sort_order"
-    : "id,name,category,unit,package_unit,package_factor,carton_unit,carton_factor,sell_price,consumer_price,stock,barcode,description,image_url,is_archived,sort_order";
+    ? "id,name,code,category,unit,unit_options,package_unit,package_factor,carton_unit,carton_factor,buy_price,sell_price,consumer_price,stock,min_stock,barcode,description,image_url,is_archived,sort_order"
+    : "id,name,category,unit,unit_options,package_unit,package_factor,carton_unit,carton_factor,sell_price,consumer_price,stock,barcode,description,image_url,is_archived,sort_order";
 
   const { data, error } = await db
     .from("products")
@@ -2706,6 +2691,7 @@ async function renderProducts() {
         <strong>${stock}</strong>
         ${escapeHtml(p.unit || "عدد")}
       </p>
+      <p class="small">واحدهای فروش: ${getProductUnits(p).map(u=>escapeHtml(u.name)+" × "+money(u.factor)).join("، ")}</p>
 
       ${
         isManager
@@ -2892,222 +2878,34 @@ async function archiveProduct(id) {
   }
 }
 
-/* فرم افزودن محصول */
-function openProductModal() {
-  if (profile?.role !== "manager") return;
-
-  editingProductId = null;
-
-  $("productName").value = "";
-  $("unit").value = "";
-  $("packageUnit").value = "";
-  $("packageFactor").value = "1";
-  $("cartonUnit").value = "";
-  $("cartonFactor").value = "1";
-  $("stock").value = "";
-  $("minStock").value = "";
-  $("buyPrice").value = "";
-  $("sellPrice").value = "";
-  $("consumerPrice").value = "";
-  $("barcode").value = "";
-  $("description").value = "";
-  $("productImage").value = "";
-  $("categorySelect").value = "";
-
-  $("productModal").querySelector(".modalhead h2").textContent =
-    "افزودن محصول";
-
-  $("addProductButton").textContent = "ثبت محصول";
-
-  $("productModal").classList.remove("hidden");
+/* فرم افزودن محصول با واحدهای قابل تعریف */
+/* فرم افزودن محصول با واحدهای قابل تعریف */
+function openProductModal(){if(profile?.role!=="manager")return;editingProductId=null;$("productName").value="";$("unit").value="عدد";renderProductUnitEditor([]);$("stock").value="";$("stockUnit").value="1";$("minStock").value="";$("buyPrice").value="";$("sellPrice").value="";$("consumerPrice").value="";$("barcode").value="";$("description").value="";$("productImage").value="";$("categorySelect").value="";$("productModal").querySelector(".modalhead h2").textContent="افزودن محصول";$("addProductButton").textContent="ثبت محصول";$("productModal").classList.remove("hidden");}
+function openEditProduct(id){if(profile?.role!=="manager")return;const p=productList.find(x=>String(x.id)===String(id));if(!p)return;editingProductId=p.id;$("productName").value=p.name||"";$("unit").value=p.unit||"عدد";renderProductUnitEditor(getProductUnits(p).slice(1));$("stock").value=p.stock??0;refreshStockUnitOptions(p.unit||"عدد");$("stockUnit").value="1";$("minStock").value=p.min_stock??0;$("buyPrice").value=p.buy_price??"";$("sellPrice").value=p.sell_price??"";$("consumerPrice").value=p.consumer_price??"";$("barcode").value=p.barcode||"";$("description").value=p.description||"";$("productImage").value="";$("categorySelect").value=p.category||"";$("productModal").querySelector(".modalhead h2").textContent="ویرایش محصول";$("addProductButton").textContent="ذخیره تغییرات";$("productModal").classList.remove("hidden");}
+async function addProduct(){
+ if(profile?.role!=="manager")return;
+ const name=$("productName").value.trim(),baseUnit=$("unit").value.trim()||"عدد",buy=Number($("buyPrice").value),sell=Number($("sellPrice").value),consumer=Number($("consumerPrice").value),enteredStock=Number($("stock").value),stockFactor=Number($("stockUnit").value||1),stock=enteredStock*stockFactor,minStock=Number($("minStock").value),unitOptions=readProductUnitEditor();
+ if(!name||$("buyPrice").value===""||$("sellPrice").value===""||$("consumerPrice").value===""||$("stock").value===""||$("minStock").value==="")return notice("اطلاعات محصول را کامل کن.","error");
+ if(![buy,sell,consumer,enteredStock,stock,minStock,stockFactor].every(Number.isFinite)||[buy,sell,consumer,enteredStock,stock,minStock].some(x=>x<0)||!Number.isInteger(enteredStock)||!Number.isInteger(stock)||!Number.isInteger(minStock))return notice("مقادیر قیمت و موجودی معتبر نیستند.","error");
+ const seen=new Set([baseUnit.toLocaleLowerCase("fa")]);for(const u of unitOptions){const k=u.name.toLocaleLowerCase("fa");if(seen.has(k)||!Number.isInteger(u.factor)||u.factor<2)return notice("نام واحدها نباید تکراری باشد و ضریب هر واحد باید عدد صحیح بزرگ‌تر از ۱ باشد.","error");seen.add(k);}
+ if(!Number.isInteger(stockFactor)||stockFactor<1)return notice("واحد موجودی اولیه معتبر نیست.","error");
+ const duplicateByName=editingProductId===null&&productList.some(p=>!p.is_archived&&String(p.name||"").trim().toLocaleLowerCase("fa")===name.toLocaleLowerCase("fa"));
+ setBusy("addProductButton",true);let uploadedPath=null;
+ try{
+  const file=$("productImage").files[0];if(file&&!duplicateByName)uploadedPath=await uploadProductImage(file);
+  const first=unitOptions[0]||null,second=unitOptions[1]||null;
+  const productData={name,category:$("categorySelect").value||null,unit:baseUnit,unit_options:unitOptions,package_unit:first?.name||null,package_factor:first?.factor||1,carton_unit:second?.name||null,carton_factor:second?(first&&second.factor%first.factor===0?second.factor/first.factor:second.factor):1,buy_price:buy,sell_price:sell,consumer_price:consumer,stock,min_stock:minStock,barcode:$("barcode").value.trim()||null,description:$("description").value.trim(),is_archived:false};
+  if(editingProductId!==null){const old=productList.find(p=>String(p.id)===String(editingProductId));productData.image_url=uploadedPath||old?.image_url||null;const {error}=await db.from("products").update(productData).eq("id",editingProductId);if(error)throw error;notice("اطلاعات محصول و واحدهای آن ویرایش شد.");}
+  else{
+   const duplicate=productList.find(p=>!p.is_archived&&String(p.name||"").trim().toLocaleLowerCase("fa")===name.toLocaleLowerCase("fa"));
+   if(duplicate){const oldUnits=getProductUnits(duplicate),same=oldUnits.length===unitOptions.length+1&&oldUnits.slice(1).every((u,i)=>u.name===unitOptions[i]?.name&&u.factor===unitOptions[i]?.factor)&&(duplicate.unit||"عدد")===baseUnit;if(!same)throw new Error("این نام محصول قبلاً با واحدهای متفاوت ثبت شده است. برای افزایش موجودی، واحدها باید یکسان باشند.");const {error}=await db.from("products").update({stock:safeNumber(duplicate.stock)+stock}).eq("id",duplicate.id);if(error)throw error;if(uploadedPath){await db.storage.from("product-images").remove([uploadedPath]);uploadedPath=null;}notice("محصول تکراری بود؛ موجودی آن بر اساس واحد پایه افزایش یافت.");}
+   else{productData.sort_order=productList.reduce((m,p)=>Math.max(m,safeNumber(p.sort_order)),0)+1;productData.image_url=uploadedPath;const {error}=await db.from("products").insert(productData);if(error)throw error;notice("محصول جدید ثبت شد.");}
+  }
+  editingProductId=null;closeProductModal();await loadProducts();
+ }catch(error){if(uploadedPath)await db.storage.from("product-images").remove([uploadedPath]);notice("عملیات محصول ناموفق بود: "+error.message,"error");}
+ finally{setBusy("addProductButton",false);}
 }
 
-/* ویرایش محصول */
-function openEditProduct(id) {
-  if (profile?.role !== "manager") return;
-
-  const p = productList.find(
-    x => String(x.id) === String(id)
-  );
-
-  if (!p) return;
-
-  editingProductId = p.id;
-
-  $("productName").value = p.name || "";
-  $("unit").value = p.unit || "";
-  $("packageUnit").value = p.package_unit || "";
-  $("packageFactor").value = p.package_factor ?? 1;
-  $("cartonUnit").value = p.carton_unit || "";
-  $("cartonFactor").value = p.carton_factor ?? 1;
-  $("stock").value = p.stock ?? 0;
-  $("minStock").value = p.min_stock ?? 0;
-  $("buyPrice").value = p.buy_price ?? "";
-  $("sellPrice").value = p.sell_price ?? "";
-  $("consumerPrice").value = p.consumer_price ?? "";
-  $("barcode").value = p.barcode || "";
-  $("description").value = p.description || "";
-  $("productImage").value = "";
-  $("categorySelect").value = p.category || "";
-
-  $("productModal").querySelector(".modalhead h2").textContent =
-    "ویرایش محصول";
-
-  $("addProductButton").textContent = "ذخیره تغییرات";
-
-  $("productModal").classList.remove("hidden");
-}
-
-/* ثبت محصول جدید یا ذخیره ویرایش */
-
-async function addProduct() {
-  if (profile?.role !== "manager") return;
-
-  const name = $("productName").value.trim();
-  const buy = Number($("buyPrice").value);
-  const sell = Number($("sellPrice").value);
-  const consumer = Number($("consumerPrice").value);
-  const stock = Number($("stock").value);
-  const minStock = Number($("minStock").value);
-  const packageUnit = $("packageUnit").value.trim();
-  const packageFactor = Number($("packageFactor").value || 1);
-  const cartonUnit = $("cartonUnit").value.trim();
-  const cartonFactor = Number($("cartonFactor").value || 1);
-
-  if (
-    !name ||
-    $("buyPrice").value === "" ||
-    $("sellPrice").value === "" ||
-    $("consumerPrice").value === "" ||
-    $("stock").value === "" ||
-    $("minStock").value === ""
-  ) {
-    return notice("اطلاعات محصول را کامل کن.", "error");
-  }
-
-  if (
-    ![buy, sell, consumer, stock, minStock, packageFactor, cartonFactor].every(Number.isFinite) ||
-    [buy, sell, consumer, stock, minStock].some(x => x < 0) ||
-    !Number.isInteger(stock) ||
-    !Number.isInteger(minStock) ||
-    !Number.isInteger(packageFactor) || packageFactor < 1 ||
-    !Number.isInteger(cartonFactor) || cartonFactor < 1 ||
-    (cartonUnit && !packageUnit) ||
-    (packageUnit && packageFactor < 2) ||
-    (cartonUnit && cartonFactor < 2)
-  ) {
-    return notice("مقادیر معتبر نیستند.", "error");
-  }
-  const imageFile = $("productImage")?.files?.[0];
-
-const duplicateByName = editingProductId === null && productList.some(p =>
-  !p.is_archived && String(p.name||"").trim().toLocaleLowerCase("fa") === name.toLocaleLowerCase("fa")
-);
-  setBusy("addProductButton", true);
-
-  let uploadedPath = null;
-
-  try {
-    const file = $("productImage").files[0];
-
-    if (file && !duplicateByName) {
-      uploadedPath = await uploadProductImage(file);
-    }
-
-    const productData = {
-      name,
-      category: $("categorySelect").value || null,
-      unit: $("unit").value.trim() || "عدد",
-      package_unit: packageUnit || null,
-      package_factor: packageUnit ? packageFactor : 1,
-      carton_unit: cartonUnit || null,
-      carton_factor: cartonUnit ? cartonFactor : 1,
-      buy_price: buy,
-      sell_price: sell,
-      consumer_price: consumer,
-      stock: stock,
-      min_stock: minStock,
-      barcode: $("barcode").value.trim() || null,
-      description: $("description").value.trim(),
-      is_archived: false
-    };
-
-    if (editingProductId !== null) {
-      const old = productList.find(
-        p => String(p.id) === String(editingProductId)
-      );
-
-      productData.image_url = uploadedPath
-        ? uploadedPath
-        : old?.image_url || null;
-
-      const { error } = await db
-        .from("products")
-        .update(productData)
-        .eq("id", editingProductId);
-
-      if (error) throw error;
-
-      notice("اطلاعات محصول ویرایش شد.");
-
-    } else {
-      const duplicate = productList.find(p =>
-        !p.is_archived && String(p.name||"").trim().toLocaleLowerCase("fa") === name.toLocaleLowerCase("fa")
-      );
-      if (duplicate) {
-        if ((duplicate.unit||"عدد") !== productData.unit ||
-            (duplicate.package_unit||null) !== productData.package_unit ||
-            safeNumber(duplicate.package_factor||1) !== productData.package_factor ||
-            (duplicate.carton_unit||null) !== productData.carton_unit ||
-            safeNumber(duplicate.carton_factor||1) !== productData.carton_factor) {
-          throw new Error("این نام محصول قبلاً با واحدهای متفاوت ثبت شده است. برای افزایش موجودی، واحدها باید یکسان باشند.");
-        }
-        const { error } = await db.from("products")
-          .update({stock:safeNumber(duplicate.stock)+stock})
-          .eq("id",duplicate.id);
-        if(error)throw error;
-        if(uploadedPath){
-          await db.storage.from("product-images").remove([uploadedPath]);
-          uploadedPath=null;
-        }
-        notice("محصول تکراری بود؛ موجودی همان محصول افزایش یافت.");
-      } else {
-        const maxOrder = productList.reduce(
-          (max, p) => Math.max(max, safeNumber(p.sort_order)),
-          0
-        );
-        productData.sort_order = maxOrder + 1;
-        productData.image_url = uploadedPath;
-        const { error } = await db.from("products").insert(productData);
-        if (error) throw error;
-        notice("محصول جدید ثبت شد.");
-      }
-    }
-
-    editingProductId = null;
-
-    closeProductModal();
-
-    await loadProducts();
-
-  } catch (error) {
-    if (uploadedPath) {
-      await db.storage
-        .from("product-images")
-        .remove([uploadedPath]);
-    }
-
-    notice(
-      "عملیات محصول ناموفق بود: " + error.message,
-      "error"
-    );
-
-  } finally {
-    setBusy("addProductButton", false);
-  }
-}
-
-/* بستن فرم محصول */
 function closeProductModal() {
   $("productModal").classList.add("hidden");
   editingProductId = null;
@@ -3256,6 +3054,7 @@ async function renderInvoicePicker() {
             ${escapeHtml(p.unit || "عدد")}
           </div>
 
+          <div class="small">واحدها: ${getProductUnits(p).map(u=>escapeHtml(u.name)+" × "+money(u.factor)).join("، ")}</div>
           <div style="color:${remaining > 0 ? "var(--success,#16834a)" : "var(--danger,#d33)"}">
             قابل انتخاب:
             <strong>${remaining}</strong>
@@ -3434,43 +3233,30 @@ function openInvoiceModal() {
   $("invoiceModal").classList.remove("hidden");
 }
 
-/* نمایش دو قیمت در اقلام فاکتور */
-function renderInvoiceItems() {
-  const box = $("invoiceItems");
-  if (!box) return;
-  if (!invoiceItems.length) {
-    box.textContent = "هنوز محصولی اضافه نشده است.";
-    $("invoiceTotal").textContent = "";
-    return;
-  }
-  let sellTotal=0, consumerTotal=0, consumerKnown=true;
-  let h=`<table><tr><th>محصول</th><th>واحد فروش</th><th>تعداد</th><th>قیمت واحد</th><th>جمع فروش</th><th>قیمت مصرف‌کننده</th><th>جمع مصرف‌کننده</th><th>عملیات</th></tr>`;
-  invoiceItems.forEach((x,i)=>{
-    const p=x.product;
-    const units=getProductUnits(p);
-    const currentUnit=units.find(u=>u.name===(x.saleUnit||p.unit))||units[0];
-    const factor=Math.max(1,safeNumber(x.factor)||currentUnit.factor);
-    x.factor=factor;
-    if(x.saleQty==null)x.saleQty=safeNumber(x.quantity)/factor;
-    const baseQty=safeNumber(x.quantity);
-    const unitPrice=safeNumber(p.sell_price)*factor;
-    const lineTotal=baseQty*safeNumber(p.sell_price);
-    sellTotal+=lineTotal;
-    const cp=p.consumer_price==null?null:safeNumber(p.consumer_price)*factor;
-    const cpTotal=p.consumer_price==null?null:baseQty*safeNumber(p.consumer_price);
-    if(cpTotal==null)consumerKnown=false; else consumerTotal+=cpTotal;
-    const options=units.map(u=>`<option value="${escapeHtml(u.name)}" ${u.name===currentUnit.name?"selected":""}>${escapeHtml(u.name)}</option>`).join("");
-    h+=`<tr>
-      <td>${escapeHtml(p.name)}</td>
-      <td><select onchange="setInvoiceItemUnit(${i},this.value)">${options}</select></td>
-      <td><input type="number" min="1" step="1" value="${escapeHtml(x.saleQty)}" style="width:82px" onchange="setInvoiceItemQuantity(${i},this.value)" onblur="setInvoiceItemQuantity(${i},this.value)"></td>
-      <td>${money(unitPrice)}</td><td>${money(lineTotal)}</td>
-      <td>${cp==null?"نامشخص":money(cp)}</td><td>${cpTotal==null?"نامشخص":money(cpTotal)}</td>
-      <td><button class="danger" onclick="removeInvoiceItem(${i})">حذف</button></td>
-    </tr>`;
-  });
-  box.innerHTML=h+"</table>";
-  $("invoiceTotal").innerHTML=`<div>جمع فروش: <b>${money(sellTotal)}</b></div><div>جمع قیمت مصرف‌کننده: <b>${consumerKnown?money(consumerTotal):"نامشخص"}</b></div><div>اختلاف: <b>${consumerKnown?money(consumerTotal-sellTotal):"نامشخص"}</b></div><p class="small">موجودی و مقدار ارسالی به سیستم بر اساس واحد پایه محاسبه می‌شود.</p>`;
+/* نمایش مقدار واحد فروش و مقدار تبدیل‌شده به واحد پایه */
+/* نمایش مقدار واحد فروش و مقدار تبدیل‌شده به واحد پایه */
+function renderInvoiceItems(){
+ const box=$("invoiceItems");if(!box)return;
+ if(!invoiceItems.length){box.textContent="هنوز محصولی اضافه نشده است.";$("invoiceTotal").textContent="";return;}
+ let sellTotal=0,consumerTotal=0,consumerKnown=true;
+ let h="<table><tr><th>محصول</th><th>واحد فروش</th><th>تعداد</th><th>مقدار پایه</th><th>قیمت واحد فروش</th><th>جمع فروش</th><th>قیمت مصرف‌کننده</th><th>جمع مصرف‌کننده</th><th>عملیات</th></tr>";
+ invoiceItems.forEach((x,i)=>{
+  const p=x.product,units=getProductUnits(p),current=units.find(u=>u.name===(x.saleUnit||p.unit))||units[0];
+  const factor=Math.max(1,Math.trunc(safeNumber(x.factor)||current.factor));x.factor=factor;
+  if(x.saleQty==null)x.saleQty=safeNumber(x.quantity)/factor;
+  const baseQty=safeNumber(x.quantity),basePrice=safeNumber(p.sell_price),unitPrice=basePrice*factor,lineTotal=baseQty*basePrice;
+  sellTotal+=lineTotal;const cp=p.consumer_price==null?null:safeNumber(p.consumer_price)*factor;
+  const cpTotal=p.consumer_price==null?null:baseQty*safeNumber(p.consumer_price);
+  if(cpTotal==null)consumerKnown=false;else consumerTotal+=cpTotal;
+  const options=units.map(u=>`<option value="${escapeHtml(u.name)}" ${u.name===current.name?"selected":""}>${escapeHtml(u.name)}</option>`).join("");
+  h+=`<tr><td>${escapeHtml(p.name)}</td><td><select onchange="setInvoiceItemUnit(${i},this.value)">${options}</select></td>
+   <td><input type="number" min="1" step="1" value="${escapeHtml(x.saleQty)}" style="width:82px" onchange="setInvoiceItemQuantity(${i},this.value)" onblur="setInvoiceItemQuantity(${i},this.value)"></td>
+   <td>${money(baseQty)} ${escapeHtml(p.unit||"عدد")}</td><td>${money(unitPrice)}</td><td>${money(lineTotal)}</td>
+   <td>${cp==null?"نامشخص":money(cp)}</td><td>${cpTotal==null?"نامشخص":money(cpTotal)}</td>
+   <td><button class="danger" onclick="removeInvoiceItem(${i})">حذف</button></td></tr>`;
+ });
+ box.innerHTML=h+"</table>";
+ $("invoiceTotal").innerHTML=`<div>جمع فروش: <b>${money(sellTotal)}</b></div><div>جمع قیمت مصرف‌کننده: <b>${consumerKnown?money(consumerTotal):"نامشخص"}</b></div><div>اختلاف: <b>${consumerKnown?money(consumerTotal-sellTotal):"نامشخص"}</b></div><p class="small">قیمت‌ها بر اساس واحد پایه محاسبه می‌شوند؛ موجودی نیز به مقدار پایه کاهش می‌یابد.</p>`;
 }
 
 function removeInvoiceItem(index) {
@@ -3499,7 +3285,7 @@ async function openEditInvoice(id) {
   const { data, error } = await db
     .from("sales")
     .select(
-      "id,product_id,quantity,returned_quantity,unit_price,consumer_price_at_sale,products(name,unit,package_unit,package_factor,carton_unit,carton_factor,category,barcode,image_url)"
+      "id,product_id,quantity,returned_quantity,unit_price,consumer_price_at_sale,sale_unit,sale_quantity,unit_factor,products(name,unit,unit_options,package_unit,package_factor,carton_unit,carton_factor,category,barcode,image_url)"
     )
     .eq("invoice_id", id);
 
@@ -3509,33 +3295,33 @@ async function openEditInvoice(id) {
 
   editingInvoiceId = id;
 
-  invoiceItems = (data || []).map(x => ({
-    product: {
-      id: x.product_id,
-      name: x.products?.name || "محصول",
-      unit: x.products?.unit || "عدد",
-      package_unit: x.products?.package_unit || null,
-      package_factor: x.products?.package_factor ?? 1,
-      carton_unit: x.products?.carton_unit || null,
-      carton_factor: x.products?.carton_factor ?? 1,
-      category: x.products?.category || "",
-      barcode: x.products?.barcode || "",
-      image_url: x.products?.image_url || null,
-
-      /* قیمت‌های تاریخی فاکتور */
-      sell_price: x.unit_price,
-      consumer_price: x.consumer_price_at_sale
-    },
-
-    quantity: Math.max(
-      0,
-      safeNumber(x.quantity) -
-      safeNumber(x.returned_quantity)
-    ),
-    saleQty: Math.max(0,safeNumber(x.quantity)-safeNumber(x.returned_quantity)),
-    saleUnit: x.products?.unit || "عدد",
-    factor: 1
-  })).filter(x => x.quantity > 0);
+  invoiceItems = (data || []).map(x => {
+    const baseQty=Math.max(0,safeNumber(x.quantity)-safeNumber(x.returned_quantity));
+    let factor=Math.max(1,safeNumber(x.unit_factor)||1);
+    let saleUnit=x.sale_unit||x.products?.unit||"عدد";
+    if(baseQty%factor!==0){factor=1;saleUnit=x.products?.unit||"عدد";}
+    return {
+      product:{
+        id:x.product_id,
+        name:x.products?.name||"محصول",
+        unit:x.products?.unit||"عدد",
+        unit_options:x.products?.unit_options||[],
+        package_unit:x.products?.package_unit||null,
+        package_factor:x.products?.package_factor??1,
+        carton_unit:x.products?.carton_unit||null,
+        carton_factor:x.products?.carton_factor??1,
+        category:x.products?.category||"",
+        barcode:x.products?.barcode||"",
+        image_url:x.products?.image_url||null,
+        sell_price:x.unit_price,
+        consumer_price:x.consumer_price_at_sale
+      },
+      quantity:baseQty,
+      saleQty:baseQty/factor,
+      saleUnit,
+      factor
+    };
+  }).filter(x=>x.quantity>0);
 
   renderInvoiceItems();
   renderCustomerOptions();
@@ -3561,12 +3347,11 @@ function renderPurchaseProductOptions() {
 
   productList.forEach(p => {
     const option = document.createElement("option");
-
     option.value = p.id;
     option.textContent = p.name;
-
     select.append(option);
   });
+  renderPurchaseUnitOptions();
 }
 startConnection();
 </script>
